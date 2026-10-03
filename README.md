@@ -10,9 +10,8 @@ On top of the stock harness it adds:
 - **Live results.** One coloured PASS/FAIL line per finished exercise, with a running score.
 - **A request log.** The real request parameters sent to the server, plus success or error, finish reason and tokens.
 - **Per-language stats.** A per-language table after the usual stats.
-- **Partial reruns.** `--redo` reruns only the exercises that hit context limits, failed
-| `--system-prefix TEXT|@FILE` | | Text at the start of the system prompt (see below) |
-| `--user-prefix TEXT|@FILE` | | Text at the start of the last user message of every request (see below) |, crashed or had errors.
+- **Partial reruns.** `--redo` reruns only the exercises that hit context limits, failed, crashed or had errors.
+- **Extra instructions.** `--system-prefix` and `--user-prefix` add your own text to the prompts.
 - **The grep-ast `.h` fix.** [grep-ast PR #24](https://github.com/Aider-AI/grep-ast/pull/24) is installed, so `.h` files
   are parsed as C++. Without it, C++ headers produce false lint errors that cost extra turns.
 
@@ -62,9 +61,9 @@ Show the stats of a finished or running run:
 | `--max-tokens N` | `96384` | `max_tokens` per request. `0` sends none, so the server uses the remaining context. |
 | `--threads N` | `4` | Exercises run in parallel |
 | `--stats DIR` | `MODEL-FORMAT-MAXTOK` | Output folder; its name is the run name |
-| `--redo exhausted
-| `--system-prefix TEXT|@FILE` | | Text at the start of the system prompt (see below) |
-| `--user-prefix TEXT|@FILE` | | Text at the start of the last user message of every request (see below) |\|failed\|crashed\|errors` | | Rerun only matching exercises of the latest run with this name (see below) |
+| `--redo exhausted\|failed\|crashed\|errors` | | Rerun only matching exercises of the latest run with this name (see below) |
+| `--system-prefix TEXT\|@FILE` | | Text at the start of the system prompt (see below) |
+| `--user-prefix TEXT\|@FILE` | | Text at the start of the last user message of every request (see below) |
 | `--<aider_setting> V` | | Any aider model setting; see below |
 | `-- ...` | | Passed to `benchmark.py`, for example `--num-tests 5`, `--new`, `--cont`, `--languages python,go` |
 
