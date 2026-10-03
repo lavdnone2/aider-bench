@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--stats DIR] [--redo exhausted|failed|crashed|errors] [--<aider_setting> V ...] [-- extra benchmark.py args]
+# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--stats DIR] [--redo exhausted|failed|crashed|errors] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
 #        ./aider-bench.sh --show [--stats DIR]
 # --redo: (errors = failed exercises that had error outputs or malformed replies) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again.
+# --system-prefix: text put at the start of aider's system prompt (aider system_prompt_prefix).
+# --user-prefix: text put at the start of the last user message of every request (the task, or the test errors on try 2).
 # --<aider_setting>: snake_case keys go into the generated model settings; aider ModelSettings fields
 #   (use_temperature, reasoning_tag, system_prompt_prefix, ...) at top level, anything else (top_p, top_k, temperature, ...) under extra_params.
 # DIR (default MODEL-FORMAT-MAXTOK) holds the log, model settings, requests.jsonl (each model request: params sent, ok/error, tokens), results.jsonl (each finished exercise), stats.yml and a results symlink; its name is the run name.
 set -euo pipefail
-MODE=; URL=http://127.0.0.1:8000/v1; MODEL=myai; KEY=dummy; FMT=whole; MAXTOK=96384; THREADS=4; OUT=; EXTRA=(); REDO=; TOP=(); XP=()
+MODE=; URL=http://127.0.0.1:8000/v1; MODEL=myai; KEY=dummy; FMT=whole; MAXTOK=96384; THREADS=4; OUT=; EXTRA=(); REDO=; SYSP=; USRP=; TOP=(); XP=()
 AIDER_KEYS=" weak_model_name use_repo_map send_undo_reply lazy overeager reminder examples_as_sys_msg cache_control caches_by_default use_system_prompt use_temperature streaming editor_model_name editor_edit_format reasoning_tag remove_reasoning system_prompt_prefix accepts_settings "
 while [ $# -gt 0 ]; do
   case $1 in
@@ -21,6 +23,8 @@ while [ $# -gt 0 ]; do
       k=${1#--}; if [[ $AIDER_KEYS == *" $k "* ]]; then TOP+=("  $k: $2"); else XP+=("    $k: $2"); fi; shift 2;;
     --stats) OUT=$2; shift 2;;
     --redo) REDO=$2; shift 2;;
+    --system-prefix) SYSP=$2; shift 2;;
+    --user-prefix) USRP=$2; shift 2;;
     --) shift; EXTRA=("$@"); break;;
     *) echo "unknown option: $1"; exit 1;;
   esac
@@ -29,6 +33,8 @@ done
 case $FMT in whole|diff) ;; *) echo "--format must be whole or diff"; exit 1;; esac
 case $REDO in ""|exhausted|failed|crashed|errors) ;; *) echo "--redo must be exhausted, failed, crashed or errors"; exit 1;; esac
 OUT=$(realpath -m "${OUT:-$MODEL-$FMT-$MAXTOK}"); NAME=$(basename "$OUT")
+[[ $SYSP == @* ]] && SYSP=$(cat "${SYSP#@}")
+[[ $USRP == @* ]] && USRP=$(cat "${USRP#@}")
 mkdir -p "$OUT"
 
 cd ~
@@ -83,10 +89,12 @@ EOF
 if [ "$MODE" = run ]; then
   F=tmp.benchmarks/$NAME.model-settings.yml
   printf -- '- name: openai/%s\n  edit_format: %s\n  use_repo_map: true\n' "$MODEL" "$FMT" > "$F"
+  [ -z "$SYSP" ] || TOP+=("  system_prompt_prefix: $(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$SYSP")")
   [ ${#TOP[@]} -eq 0 ] || printf '%s\n' "${TOP[@]}" >> "$F"
   [ "$MAXTOK" = 0 ] || XP=("    max_tokens: $MAXTOK" "${XP[@]}")
   [ ${#XP[@]} -eq 0 ] || { echo "  extra_params:"; printf '%s\n' "${XP[@]}"; } >> "$F"
   cp "$F" "$OUT/model-settings.yml"
+  if [ -n "$USRP" ]; then printf '%s\n' "$USRP" > "$OUT/user-prefix.txt"; else rm -f "$OUT/user-prefix.txt"; fi
   if [ -n "$REDO" ]; then
     R=$(ls -td tmp.benchmarks/*--"$NAME"/ 2>/dev/null | head -1)
     [ -n "$R" ] || { echo "no run $NAME to redo"; exit 1; }
@@ -149,6 +157,13 @@ if sys.argv and sys.argv[0].endswith("benchmark.py") and "--stats" not in sys.ar
             print(msg, file=sys.stderr)
     def completion(**kw):
         lazy._load_litellm()
+        up = os.environ.get("BENCH_USER_PREFIX")
+        if up and kw.get("messages"):
+            kw["messages"] = msgs = [dict(m) for m in kw["messages"]]
+            for m in reversed(msgs):
+                if m.get("role") == "user" and isinstance(m.get("content"), str):
+                    m["content"] = up + "\n\n" + m["content"]
+                    break
         _tl.body, t0 = None, time.time()
         rec = {"t": time.strftime("%H:%M:%S"), "ex": exercise(), "n_msgs": len(kw.get("messages") or [])}
         try:
@@ -199,11 +214,12 @@ if sys.argv and sys.argv[0].endswith("benchmark.py") and "--stats" not in sys.ar
 EOF
   [ -t 2 ] && COLOR=1 || COLOR=0; B=; N=; [ $COLOR = 1 ] && B=$'\033[1m' N=$'\033[0m'
   echo "${B}settings${N}   $F"; sed 's/^/           /' "$F"
+  [ -z "$USRP" ] || { echo "${B}user prefix${N}"; sed 's/^/           /' "$OUT/user-prefix.txt"; }
   echo "${B}benchmark${N}  $CMD"
   echo "${B}log${N}        tail -f $LOG"
   trap 'docker rm -f "aider-bench-$NAME" >/dev/null; exit 130' INT TERM
   "${DOCKER[@]}" --name "aider-bench-$NAME" --memory=12g --memory-swap=12g -e OPENAI_API_BASE="$URL" -e OPENAI_API_KEY="$KEY" \
-    -v "$OUT":/out -e PYTHONPATH=/benchmarks/hook -e BENCH_COLOR=$COLOR \
+    -v "$OUT":/out -e PYTHONPATH=/benchmarks/hook -e BENCH_COLOR=$COLOR -e BENCH_USER_PREFIX="$USRP" \
     aider-benchmark bash -c "$SETUP && echo '--- in docker: $CMD' && { $CMD; rc=\$?; chown $(id -u):$(id -g) /out/requests.jsonl /out/results.jsonl 2>/dev/null; exit \$rc; }" \
     >"$LOG" 2> >(grep --line-buffered -v 'Input is not a terminal' | tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> "$LOG") >&2) \
     || { echo "benchmark failed, last lines of $LOG:"; tail -20 "$LOG"; exit 1; }
