@@ -16,8 +16,16 @@ On top of the stock harness it adds:
 
 ## Requirements
 
-Linux with `bash`, `git`, `docker` and `python3`. On the first run the script clones aider into `~/aider`, clones
-the exercises into `~/aider/tmp.benchmarks/polyglot-benchmark`, and builds the `aider-benchmark` image.
+Linux with `bash`, `git`, `docker` and `python3`. On the first run the script:
+
+- clones aider into `~/aider`
+- clones the exercises into `~/aider/tmp.benchmarks/polyglot-benchmark`
+- builds the `aider-benchmark` image from aider's own
+  [`benchmark/Dockerfile`](https://github.com/Aider-AI/aider/blob/main/benchmark/Dockerfile) via `benchmark/docker_build.sh`
+
+The image provides the language toolchains. aider itself is installed from the mounted `~/aider` checkout at every
+start, so a `git pull` there takes effect right away. The image is not rebuilt automatically: after a Dockerfile change
+upstream, run `docker rmi aider-benchmark` and the next run rebuilds it.
 
 ## Quick start
 
