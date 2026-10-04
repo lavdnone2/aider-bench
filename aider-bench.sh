@@ -186,7 +186,7 @@ if sys.argv and sys.argv[0].endswith("benchmark.py") and "--stats" not in sys.ar
             _tl.fails = 0
             return res
         except Exception as e:
-            rec.update(ok=False, error=re.sub(r"(litellm\.)?\w+(Error|Exception|Timeout)(: | - )", "", f"{e}").strip() or repr(e), error_type=type(e).__name__)
+            rec.update(ok=False, error=re.sub(r"(litellm\.)?\w*(Error|Exception|Timeout)(: | - )", "", f"{e}").strip() or repr(e), error_type=type(e).__name__)
             m = re.search(r"maximum context length is (\d+).*?requested (\d+) output.*?at least (\d+) input", str(e), re.S)
             short = f"context overflow: prompt {int(m[3]):,} + max_tokens {int(m[2]):,} > {int(m[1]):,}" if m else f"{rec['error_type']}: {rec['error'][:160]}"
             err = e
