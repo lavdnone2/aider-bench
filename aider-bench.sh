@@ -147,6 +147,12 @@ if sys.argv and sys.argv[0].endswith("benchmark.py") and "--stats" not in sys.ar
                 return p[-4] + "/" + p[-1] if len(p) >= 4 else str(t)
             f = f.f_back
     lazy = aider.llm.litellm
+    _lx = []
+    def exinfo(err):
+        if not _lx:
+            from aider.exceptions import LiteLLMExceptions
+            _lx.append(LiteLLMExceptions())
+        return _lx[0].get_ex_info(err)
     _C = os.environ.get("BENCH_COLOR") == "1"
     def c(code, s):
         return f"\033[{code}m{s}\033[0m" if _C else s
@@ -174,14 +180,32 @@ if sys.argv and sys.argv[0].endswith("benchmark.py") and "--stats" not in sys.ar
             u = getattr(res, "usage", None)
             rec.update(ok=True, finish=res.choices[0].finish_reason,
                        prompt_tokens=getattr(u, "prompt_tokens", None), completion_tokens=getattr(u, "completion_tokens", None))
+            if getattr(_tl, "fails", 0):
+                rec["after_failures"] = _tl.fails
+                say(c("32", f"  ok {rec['ex']:<34} request succeeded after {_tl.fails} failed attempt(s)"))
+            _tl.fails = 0
             return res
         except Exception as e:
-            rec.update(ok=False, error=re.sub(r"(litellm\.)?\w+(Error|Exception)(: | - )", "", f"{e}").strip() or repr(e), error_type=type(e).__name__)
+            rec.update(ok=False, error=re.sub(r"(litellm\.)?\w+(Error|Exception|Timeout)(: | - )", "", f"{e}").strip() or repr(e), error_type=type(e).__name__)
             m = re.search(r"maximum context length is (\d+).*?requested (\d+) output.*?at least (\d+) input", str(e), re.S)
             short = f"context overflow: prompt {int(m[3]):,} + max_tokens {int(m[2]):,} > {int(m[1]):,}" if m else f"{rec['error_type']}: {rec['error'][:160]}"
-            say(c("33", f"  !  {rec['ex']:<34} {short}"))
+            err = e
             if "maximum context length" in str(e) and type(e).__name__ != "ContextWindowExceededError":
-                raise lazy._lazy_module.ContextWindowExceededError(message=str(e), model=kw.get("model"), llm_provider="openai") from e
+                err = lazy._lazy_module.ContextWindowExceededError(message=str(e), model=kw.get("model"), llm_provider="openai")
+            info = exinfo(err)
+            _tl.fails = getattr(_tl, "fails", 0) + 1
+            if info.name == "ContextWindowExceededError":
+                action, col, _tl.fails = "-> try ends, counted as ctx", "31", 0
+            elif info.retry:
+                action, col = f"-> aider retries (retry {_tl.fails}, after {0.125 * 2 ** _tl.fails:g}s)", "33"
+            elif info.name is None:
+                action, col, _tl.fails = "-> unexpected error, try ends", "31", 0
+            else:
+                action, col, _tl.fails = "-> aider gives up on this request, try ends", "31", 0
+            rec["action"] = action[3:]
+            say(c(col, f"  !  {rec['ex']:<34} {short} {action}"))
+            if err is not e:
+                raise err from e
             raise
         finally:
             rec.update(sec=round(time.time() - t0, 1), sent=_tl.body)

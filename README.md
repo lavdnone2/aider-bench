@@ -115,6 +115,11 @@ PASS 2  python/beer-song                     106s  in  15.2k  out   3.8k   1/1 1
 FAIL    java/forth                           466s  in  44.0k  out  10.5k   1/2  50.0%  errors=1 ctx=1 asks=1
 ```
 
+Every failed request says what aider does next: `aider retries (retry N, after Xs)`, `try ends, counted as ctx`
+(context overflow), `aider gives up on this request` or `unexpected error`. When a retried request finally succeeds,
+a green `ok ... request succeeded after N failed attempt(s)` line follows. The same note is stored as `action` in
+`requests.jsonl`.
+
 `DIR` contains:
 
 | File | Content |
