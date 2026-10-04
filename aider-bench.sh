@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--request-timeout SEC] [--stats DIR] [--redo exhausted|failed|crashed|errors] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
+# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--request-timeout SEC] [--stats DIR] [--redo exhausted|failed|crashed|errors|LANG/EXERCISE,...] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
 #        ./aider-bench.sh --show [--stats DIR]
 # --redo: (errors = failed exercises that had error outputs or malformed replies) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again.
 # --system-prefix: text put at the start of aider's system prompt (aider system_prompt_prefix).
@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$MODE" ] || { echo "need --run or --show"; exit 1; }
 case $FMT in whole|diff) ;; *) echo "--format must be whole or diff"; exit 1;; esac
-case $REDO in ""|exhausted|failed|crashed|errors) ;; *) echo "--redo must be exhausted, failed, crashed or errors"; exit 1;; esac
+case $REDO in ""|exhausted|failed|crashed|errors|*/*) ;; *) echo "--redo must be exhausted, failed, crashed, errors or exercise names like rust/bob,go/forth"; exit 1;; esac
 OUT=$(realpath -m "${OUT:-$MODEL-$FMT-$MAXTOK}"); NAME=$(basename "$OUT")
 [[ $SYSP == @* ]] && SYSP=$(cat "${SYSP#@}")
 [[ $USRP == @* ]] && USRP=$(cat "${USRP#@}")
@@ -103,11 +103,12 @@ if [ "$MODE" = run ]; then
     "${DOCKER[@]}" -i aider-benchmark python3 - "/benchmarks/$(basename "$R")" "$REDO" <<'EOF'
 import json, glob, os, sys, time, pathlib, textwrap
 d, what = sys.argv[1], sys.argv[2]
-tag, names = f".redo-{what}-{time.strftime('%m%d-%H%M%S')}", []
+tag, names = f".redo-{'list' if '/' in what else what}-{time.strftime('%m%d-%H%M%S')}", []
 for f in glob.glob(d + "/*/exercises/practice/*/.aider.results.json"):
     r = json.load(open(f))
-    if {"exhausted": r.get("num_exhausted_context_windows"), "failed": not any(r.get("tests_outcomes") or []), "crashed": "exception" in r, "errors": (r.get("num_error_outputs") or r.get("num_malformed_responses")) and not any(r.get("tests_outcomes") or [])}[what]:
-        p = pathlib.PurePath(f).parts; names.append(p[-5] + "/" + p[-2])
+    p = pathlib.PurePath(f).parts; ex = p[-5] + "/" + p[-2]
+    if ex in what.split(",") if "/" in what else {"exhausted": r.get("num_exhausted_context_windows"), "failed": not any(r.get("tests_outcomes") or []), "crashed": "exception" in r, "errors": (r.get("num_error_outputs") or r.get("num_malformed_responses")) and not any(r.get("tests_outcomes") or [])}[what]:
+        names.append(ex)
         for x in (f, f.replace(".aider.results.json", ".aider.chat.history.md")):
             if os.path.exists(x): os.rename(x, x + tag)
 print(f"redo {what}: {len(names)} set aside in {os.path.basename(d)} (renamed *{tag})")

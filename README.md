@@ -62,7 +62,7 @@ Show the stats of a finished or running run:
 | `--threads N` | `4` | Exercises run in parallel |
 | `--request-timeout SEC` | `3600` | How long aider waits for one reply before retrying (aider's own default is 600) |
 | `--stats DIR` | `MODEL-FORMAT-MAXTOK` | Output folder; its name is the run name |
-| `--redo exhausted\|failed\|crashed\|errors` | | Rerun only matching exercises of the latest run with this name (see below) |
+| `--redo exhausted\|failed\|crashed\|errors\|LANG/EX,...` | | Rerun only matching exercises of the latest run with this name (see below) |
 | `--system-prefix TEXT\|@FILE` | | Text at the start of the system prompt (see below) |
 | `--user-prefix TEXT\|@FILE` | | Text at the start of the last user message of every request (see below) |
 | `--<aider_setting> V` | | Any aider model setting; see below |
@@ -132,15 +132,10 @@ FAIL    java/forth                           466s  in  44.0k  out  10.5k   1/2  
 the same `--stats` name, so only those exercises run again:
 
 - `exhausted`: ran out of context window, or a reply hit `max_tokens`
-- `failed
-| `--system-prefix TEXT|@FILE` | | Text at the start of the system prompt (see below) |
-| `--user-prefix TEXT|@FILE` | | Text at the start of the last user message of every request (see below) |`: did not pass
-- `crashed
-| `--system-prefix TEXT|@FILE` | | Text at the start of the system prompt (see below) |
-| `--user-prefix TEXT|@FILE` | | Text at the start of the last user message of every request (see below) |`: the harness crashed on the exercise
-- `errors`: failed
-| `--system-prefix TEXT|@FILE` | | Text at the start of the system prompt (see below) |
-| `--user-prefix TEXT|@FILE` | | Text at the start of the last user message of every request (see below) | and had error outputs or malformed replies
+- `failed`: did not pass
+- `crashed`: the harness crashed on the exercise
+- `errors`: failed and had error outputs or malformed replies
+- `rust/bob,go/forth`: exactly these exercises, as `language/exercise` names separated by commas
 
 ```bash
 ./aider-bench.sh --run ... --stats runs/mymodel-whole --max-tokens 65536 --redo exhausted
