@@ -60,6 +60,7 @@ Show the stats of a finished or running run:
 | `--format whole\|diff` | `whole` | aider edit format |
 | `--max-tokens N` | `96384` | `max_tokens` per request. `0` sends none, so the server uses the remaining context. |
 | `--threads N` | `4` | Exercises run in parallel |
+| `--request-timeout SEC` | `3600` | How long aider waits for one reply before retrying (aider's own default is 600) |
 | `--stats DIR` | `MODEL-FORMAT-MAXTOK` | Output folder; its name is the run name |
 | `--redo exhausted\|failed\|crashed\|errors` | | Rerun only matching exercises of the latest run with this name (see below) |
 | `--system-prefix TEXT\|@FILE` | | Text at the start of the system prompt (see below) |
@@ -158,9 +159,9 @@ name, add `-- --new`.
   server's context length, the server rejects the request and aider counts a context overflow. Leave room: for
   example 65536 on a 128k-262k context model.
 - **`--max-tokens 0`** avoids that error, but a looping model can then generate until the context is full.
-- **Requests are not streamed** (`benchmark.py` sends `stream=False`), and aider stops waiting for a reply after
-  600 seconds. Proxies in front of the server need a long enough read timeout, or long replies time out and get
-  retried.
+- **Requests are not streamed** (`benchmark.py` sends `stream=False`), so a reply arrives only when it is complete.
+  aider gives up after `--request-timeout` and retries from scratch; at temperature 0 a reply that is too slow
+  tends to time out again on every retry. Proxies in front of the server need a read timeout at least that long.
 - **Proxy 502s.** Some proxies turn the server's "maximum context length" 400 into a 502. aider retries 502s for up
   to 24 hours, so the exercise hangs. The script turns those back into context errors so the run moves on.
 - **Ownership.** Results are written by root inside the container. The script hands the run folder back to your

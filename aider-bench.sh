@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--stats DIR] [--redo exhausted|failed|crashed|errors] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
+# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--request-timeout SEC] [--stats DIR] [--redo exhausted|failed|crashed|errors] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
 #        ./aider-bench.sh --show [--stats DIR]
 # --redo: (errors = failed exercises that had error outputs or malformed replies) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again.
 # --system-prefix: text put at the start of aider's system prompt (aider system_prompt_prefix).
@@ -8,7 +8,7 @@
 #   (use_temperature, reasoning_tag, system_prompt_prefix, ...) at top level, anything else (top_p, top_k, temperature, ...) under extra_params.
 # DIR (default MODEL-FORMAT-MAXTOK) holds the log, model settings, requests.jsonl (each model request: params sent, ok/error, tokens), results.jsonl (each finished exercise), stats.yml and a results symlink; its name is the run name.
 set -euo pipefail
-MODE=; URL=http://127.0.0.1:8000/v1; MODEL=myai; KEY=dummy; FMT=whole; MAXTOK=96384; THREADS=4; OUT=; EXTRA=(); REDO=; SYSP=; USRP=; TOP=(); XP=()
+MODE=; URL=http://127.0.0.1:8000/v1; MODEL=myai; KEY=dummy; FMT=whole; MAXTOK=96384; THREADS=4; RT=3600; OUT=; EXTRA=(); REDO=; SYSP=; USRP=; TOP=(); XP=()
 AIDER_KEYS=" weak_model_name use_repo_map send_undo_reply lazy overeager reminder examples_as_sys_msg cache_control caches_by_default use_system_prompt use_temperature streaming editor_model_name editor_edit_format reasoning_tag remove_reasoning system_prompt_prefix accepts_settings "
 while [ $# -gt 0 ]; do
   case $1 in
@@ -19,6 +19,7 @@ while [ $# -gt 0 ]; do
     --format) FMT=$2; shift 2;;
     --max-tokens) MAXTOK=$2; shift 2;;
     --threads) THREADS=$2; shift 2;;
+    --request-timeout) RT=$2; shift 2;;
     --*_*|--temperature|--seed|--lazy|--overeager|--reminder|--streaming)
       k=${1#--}; if [[ $AIDER_KEYS == *" $k "* ]]; then TOP+=("  $k: $2"); else XP+=("    $k: $2"); fi; shift 2;;
     --stats) OUT=$2; shift 2;;
@@ -92,6 +93,7 @@ if [ "$MODE" = run ]; then
   [ -z "$SYSP" ] || TOP+=("  system_prompt_prefix: $(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$SYSP")")
   [ ${#TOP[@]} -eq 0 ] || printf '%s\n' "${TOP[@]}" >> "$F"
   [ "$MAXTOK" = 0 ] || XP=("    max_tokens: $MAXTOK" "${XP[@]}")
+  XP+=("    timeout: $RT")
   [ ${#XP[@]} -eq 0 ] || { echo "  extra_params:"; printf '%s\n' "${XP[@]}"; } >> "$F"
   cp "$F" "$OUT/model-settings.yml"
   if [ -n "$USRP" ]; then printf '%s\n' "$USRP" > "$OUT/user-prefix.txt"; else rm -f "$OUT/user-prefix.txt"; fi
