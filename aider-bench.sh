@@ -46,8 +46,8 @@ mkdir -p tmp.benchmarks
 docker image inspect aider-benchmark >/dev/null 2>&1 || ./benchmark/docker_build.sh
 
 SETUP="uv pip install --system -q -e .[dev] &&
-  uv pip install --system -q --no-deps --reinstall 'git+https://github.com/fernandaspets/grep-ast@fix/h-header-cpp-grammar' &&
-  python3 -c \"from grep_ast.parsers import filename_to_lang as f; assert f('x.h')=='cpp', f('x.h'); print('grep-ast PR24 OK')\""
+  sed -i 's/\"\\.h\": \"c\",/\".h\": \"cpp\",/' \$(python3 -c 'import grep_ast.parsers as p; print(p.__file__)') &&
+  python3 -c \"from grep_ast.parsers import filename_to_lang as f; assert f('x.h')=='cpp', f('x.h'); print('grep-ast .h -> cpp OK')\""
 DOCKER=(docker run --rm -v "$PWD":/aider -v "$PWD/tmp.benchmarks":/benchmarks -w /aider
   -e AIDER_DOCKER=1 -e AIDER_BENCHMARK_DIR=/benchmarks)
 

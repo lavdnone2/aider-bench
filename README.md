@@ -12,8 +12,10 @@ On top of the stock harness it adds:
 - **Per-language stats.** A per-language table after the usual stats.
 - **Partial reruns.** `--redo` reruns only the exercises that hit context limits, failed, crashed or had errors.
 - **Extra instructions.** `--system-prefix` and `--user-prefix` add your own text to the prompts.
-- **The grep-ast `.h` fix.** [grep-ast PR #24](https://github.com/Aider-AI/grep-ast/pull/24) is installed, so `.h` files
-  are parsed as C++. Without it, C++ headers produce false lint errors that cost extra turns.
+- **The grep-ast `.h` fix.** grep-ast 0.9.0, the version aider pins, parses `.h` files with the C grammar, which
+  rejects C++ (namespaces, templates, classes). C++ headers then produce false lint errors that cost extra turns. At
+  every start the script changes that one mapping line in the container's grep-ast to `cpp`, and stops if the result
+  isn't `cpp`. This is the same change as grep-ast PR #24, whose fork and PR are no longer on GitHub.
 
 ## Requirements
 
