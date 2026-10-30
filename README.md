@@ -65,7 +65,7 @@ Show the stats of a finished or running run:
 | `--request-timeout SEC` | `3600` | How long aider waits for one reply before retrying (aider's own default is 600) |
 | `--stats DIR` | `MODEL-FORMAT-MAXTOK` | Output folder; its name is the run name |
 | `--runs N` | `1` | Run the whole benchmark N times and report the scores as mean ± error (see below) |
-| `--redo exhausted\|failed\|crashed\|errors\|LANG/EX,...` | | Rerun only matching exercises of the latest run with this name (see below) |
+| `--redo WHAT,...` | | Rerun only matching exercises of the latest run with this name: `exhausted`, `failed`, `crashed`, `errors` or `LANG/EX` names, combined with commas (see below) |
 | `--system-prefix TEXT\|@FILE` | | Text at the start of the system prompt (see below) |
 | `--user-prefix TEXT\|@FILE` | | Text at the start of the last user message of every request (see below) |
 | `--<aider_setting> V` | | Any aider model setting; see below |
@@ -158,8 +158,9 @@ SE is the standard error of the mean (SD / √N); the 95% CI uses the t-distribu
 - Rerunning the same command continues the series: unfinished runs continue, missing runs start. `-- --new` and
   `-- --cont` are ignored with `--runs`; use a new `--stats` name for a new series.
 - Do not combine with `-- --num-tests`: each run would pick a different random subset of exercises.
-- `--redo` works on a single run of the series (`--stats DIR/NAME-r2 --redo crashed`); then `--show --stats DIR`
-  updates the report. Redoing only some exercises gives them an extra chance, so mention it.
+- `--redo` with `--runs N` reruns the matching exercises in every started run, then prints the series report. For
+  one run only, use `--stats DIR/NAME-rK --redo ...`, then `--show --stats DIR`. Redoing only some exercises gives
+  them an extra chance, so mention it.
 - Without `--runs` (or with `--runs 1`) everything works exactly as a normal single run.
 
 ## Rerunning part of a run
@@ -170,11 +171,17 @@ the same `--stats` name, so only those exercises run again:
 - `exhausted`: ran out of context window, or a reply hit `max_tokens`
 - `failed`: did not pass
 - `crashed`: the harness crashed on the exercise
-- `errors`: failed and had error outputs or malformed replies
-- `rust/bob,go/forth`: exactly these exercises, as `language/exercise` names separated by commas
+- `errors`: failed, and had error outputs (failed requests, for example) or malformed replies
+- `rust/bob`: exactly this exercise, as a `language/exercise` name
+
+Combine them with commas; an exercise reruns if it matches any of them. Add `--redo` to the command you ran the
+benchmark with:
 
 ```bash
-./aider-bench.sh --run ... --stats runs/mymodel-whole --max-tokens 65536 --redo exhausted
+./aider-bench.sh --run ... --stats runs/mymodel-whole --max-tokens 65536 --redo exhausted,errors
+
+# a --runs series: the matching exercises of every run, then the series report
+./aider-bench.sh --run ... --stats runs/mymodel-whole --runs 5 --redo exhausted,errors
 ```
 
 Rerunning only some exercises gives them a second chance the others did not get. Report the original score

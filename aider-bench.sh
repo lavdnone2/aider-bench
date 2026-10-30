@@ -3,7 +3,7 @@
 #        ./aider-bench.sh --show [--stats DIR]
 # --runs N: run the whole benchmark N times with the same settings (DIR/NAME-r1 .. rN), then report each score as
 #   mean ± standard error over the runs. Rerunning the same command continues unfinished runs. Without it: one run.
-# --redo: (errors = failed exercises that had error outputs or malformed replies) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again.
+# --redo: (errors = failed exercises that had error outputs or malformed replies; combine with commas, e.g. exhausted,errors) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again. With --runs N: in every started run of the series.
 # --system-prefix: text put at the start of aider's system prompt (aider system_prompt_prefix).
 # --user-prefix: text put at the start of the last user message of every request (the task, or the test errors on try 2).
 # --<aider_setting>: snake_case keys go into the generated model settings; aider ModelSettings fields
@@ -38,16 +38,17 @@ done
 [ -n "$MODE" ] || { echo "need --run or --show"; exit 1; }
 case $FMT in whole|diff) ;; *) echo "--format must be whole or diff"; exit 1;; esac
 [[ -z $RUNS || $RUNS =~ ^[1-9][0-9]*$ ]] || { echo "--runs must be a positive number"; exit 1; }
-case $REDO in ""|exhausted|failed|crashed|errors|*/*) ;; *) echo "--redo must be exhausted, failed, crashed, errors or exercise names like rust/bob,go/forth"; exit 1;; esac
+for w in ${REDO//,/ }; do case $w in exhausted|failed|crashed|errors|*/*) ;; *) echo "--redo takes exhausted, failed, crashed, errors or exercise names like rust/bob, separated by commas"; exit 1;; esac; done
 OUT=$(realpath -m "${OUT:-$MODEL-$FMT-$MAXTOK}"); NAME=$(basename "$OUT")
 [[ $SYSP == @* ]] && SYSP=$(cat "${SYSP#@}")
 [[ $USRP == @* ]] && USRP=$(cat "${USRP#@}")
 mkdir -p "$OUT"
 if [ "${RUNS:-1}" -gt 1 ] && [ "$MODE" = run ]; then
-  [ -z "$REDO" ] || { echo "--redo works on one run of a series: --stats $OUT/$NAME-rK --redo $REDO"; exit 1; }
   XR=(); for x in "${EXTRA[@]:-}"; do case $x in --new|--cont) echo "note: $x ignored with --runs (existing runs continue, missing runs start)";; "") ;; *) XR+=("$x");; esac; done
   for i in $(seq "$RUNS"); do
-    X=("${XR[@]}"); ls -d "$HOME/aider/tmp.benchmarks/"*--"$NAME-r$i"/ >/dev/null 2>&1 && X+=(--cont)
+    X=("${XR[@]}")
+    if ls -d "$HOME/aider/tmp.benchmarks/"*--"$NAME-r$i"/ >/dev/null 2>&1; then X+=(--cont)
+    elif [ -n "$REDO" ]; then echo "=== run $i of $RUNS: not started, nothing to redo (the same command without --redo starts it)"; continue; fi
     echo "=== run $i of $RUNS: $OUT/$NAME-r$i"
     bash "$SELF" --stats "$OUT/$NAME-r$i" "${OPTS[@]}" -- "${X[@]}"
   done
@@ -167,15 +168,20 @@ if [ "$MODE" = run ]; then
   if [ -n "$USRP" ]; then printf '%s\n' "$USRP" > "$OUT/user-prefix.txt"; else rm -f "$OUT/user-prefix.txt"; fi
   if [ -n "$REDO" ]; then
     R=$(ls -td tmp.benchmarks/*--"$NAME"/ 2>/dev/null | head -1)
-    [ -n "$R" ] || { echo "no run $NAME to redo"; exit 1; }
+    [ -n "$R" ] || { ls -d "$OUT/$NAME"-r[0-9]*/ >/dev/null 2>&1 && echo "$OUT is a --runs series: add --runs N to redo all its runs, or use --stats $OUT/$NAME-rK for one"; echo "no run $NAME to redo"; exit 1; }
     "${DOCKER[@]}" -i aider-benchmark python3 - "/benchmarks/$(basename "$R")" "$REDO" <<'EOF'
 import json, glob, os, sys, time, pathlib, textwrap
 d, what = sys.argv[1], sys.argv[2]
-tag, names = f".redo-{'list' if '/' in what else what}-{time.strftime('%m%d-%H%M%S')}", []
+items = [w for w in what.split(",") if w]
+exs, cats = {w for w in items if "/" in w}, [w for w in items if "/" not in w]
+tag, names = f".redo-{'+'.join(cats + (['list'] if exs else []))}-{time.strftime('%m%d-%H%M%S')}", []
 for f in glob.glob(d + "/*/exercises/practice/*/.aider.results.json"):
     r = json.load(open(f))
     p = pathlib.PurePath(f).parts; ex = p[-5] + "/" + p[-2]
-    if ex in what.split(",") if "/" in what else {"exhausted": r.get("num_exhausted_context_windows"), "failed": not any(r.get("tests_outcomes") or []), "crashed": "exception" in r, "errors": (r.get("num_error_outputs") or r.get("num_malformed_responses")) and not any(r.get("tests_outcomes") or [])}[what]:
+    failed = not any(r.get("tests_outcomes") or [])
+    hit = {"exhausted": r.get("num_exhausted_context_windows"), "failed": failed, "crashed": "exception" in r,
+           "errors": (r.get("num_error_outputs") or r.get("num_malformed_responses")) and failed}
+    if ex in exs or any(hit[c] for c in cats):
         names.append(ex)
         for x in (f, f.replace(".aider.results.json", ".aider.chat.history.md")):
             if os.path.exists(x): os.rename(x, x + tag)
