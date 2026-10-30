@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--request-timeout SEC] [--stats DIR] [--redo exhausted|failed|crashed|errors|LANG/EXERCISE,...] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
+# usage: ./aider-bench.sh --run [--url URL] [--model NAME] [--key KEY] [--format whole|diff] [--max-tokens N (0 = let server use remaining context)] [--threads N] [--request-timeout SEC] [--stats DIR] [--runs N] [--redo exhausted|failed|crashed|errors|LANG/EXERCISE,...] [--system-prefix TEXT|@FILE] [--user-prefix TEXT|@FILE] [--<aider_setting> V ...] [-- extra benchmark.py args]
 #        ./aider-bench.sh --show [--stats DIR]
+# --runs N: run the whole benchmark N times with the same settings (DIR/NAME-r1 .. rN), then report each score as
+#   mean ± standard error over the runs. Rerunning the same command continues unfinished runs. Without it: one run.
 # --redo: (errors = failed exercises that had error outputs or malformed replies) set aside matching results of the latest DIR run (renamed, not deleted) and continue it (--cont), so only those exercises run again.
 # --system-prefix: text put at the start of aider's system prompt (aider system_prompt_prefix).
 # --user-prefix: text put at the start of the last user message of every request (the task, or the test errors on try 2).
@@ -9,6 +11,8 @@
 # DIR (default MODEL-FORMAT-MAXTOK) holds the log, model settings, requests.jsonl (each model request: params sent, ok/error, tokens), results.jsonl (each finished exercise), stats.yml and a results symlink; its name is the run name.
 set -euo pipefail
 MODE=; URL=http://127.0.0.1:8000/v1; MODEL=myai; KEY=dummy; FMT=whole; MAXTOK=96384; THREADS=4; RT=3600; OUT=; EXTRA=(); REDO=; SYSP=; USRP=; TOP=(); XP=()
+SELF=$(realpath "$0"); RUNS=; OPTS=(); a=("$@"); i=0
+while [ $i -lt ${#a[@]} ]; do case ${a[$i]} in --runs|--stats) i=$((i + 2));; --) break;; *) OPTS+=("${a[$i]}"); i=$((i + 1));; esac; done
 AIDER_KEYS=" weak_model_name use_repo_map send_undo_reply lazy overeager reminder examples_as_sys_msg cache_control caches_by_default use_system_prompt use_temperature streaming editor_model_name editor_edit_format reasoning_tag remove_reasoning system_prompt_prefix accepts_settings "
 while [ $# -gt 0 ]; do
   case $1 in
@@ -23,6 +27,7 @@ while [ $# -gt 0 ]; do
     --*_*|--temperature|--seed|--lazy|--overeager|--reminder|--streaming)
       k=${1#--}; if [[ $AIDER_KEYS == *" $k "* ]]; then TOP+=("  $k: $2"); else XP+=("    $k: $2"); fi; shift 2;;
     --stats) OUT=$2; shift 2;;
+    --runs) RUNS=$2; shift 2;;
     --redo) REDO=$2; shift 2;;
     --system-prefix) SYSP=$2; shift 2;;
     --user-prefix) USRP=$2; shift 2;;
@@ -32,11 +37,22 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$MODE" ] || { echo "need --run or --show"; exit 1; }
 case $FMT in whole|diff) ;; *) echo "--format must be whole or diff"; exit 1;; esac
+[[ -z $RUNS || $RUNS =~ ^[1-9][0-9]*$ ]] || { echo "--runs must be a positive number"; exit 1; }
 case $REDO in ""|exhausted|failed|crashed|errors|*/*) ;; *) echo "--redo must be exhausted, failed, crashed, errors or exercise names like rust/bob,go/forth"; exit 1;; esac
 OUT=$(realpath -m "${OUT:-$MODEL-$FMT-$MAXTOK}"); NAME=$(basename "$OUT")
 [[ $SYSP == @* ]] && SYSP=$(cat "${SYSP#@}")
 [[ $USRP == @* ]] && USRP=$(cat "${USRP#@}")
 mkdir -p "$OUT"
+if [ "${RUNS:-1}" -gt 1 ] && [ "$MODE" = run ]; then
+  [ -z "$REDO" ] || { echo "--redo works on one run of a series: --stats $OUT/$NAME-rK --redo $REDO"; exit 1; }
+  XR=(); for x in "${EXTRA[@]:-}"; do case $x in --new|--cont) echo "note: $x ignored with --runs (existing runs continue, missing runs start)";; "") ;; *) XR+=("$x");; esac; done
+  for i in $(seq "$RUNS"); do
+    X=("${XR[@]}"); ls -d "$HOME/aider/tmp.benchmarks/"*--"$NAME-r$i"/ >/dev/null 2>&1 && X+=(--cont)
+    echo "=== run $i of $RUNS: $OUT/$NAME-r$i"
+    bash "$SELF" --stats "$OUT/$NAME-r$i" "${OPTS[@]}" -- "${X[@]}"
+  done
+  MODE=show
+fi
 
 cd ~
 [ -d aider ] || git clone https://github.com/Aider-AI/aider.git
@@ -51,7 +67,59 @@ SETUP="uv pip install --system -q -e .[dev] &&
 DOCKER=(docker run --rm -v "$PWD":/aider -v "$PWD/tmp.benchmarks":/benchmarks -w /aider
   -e AIDER_DOCKER=1 -e AIDER_BENCHMARK_DIR=/benchmarks)
 
+series() {
+  A=(); for s in "${SUBS[@]}"; do r=$(basename "$s"); R=$(ls -td tmp.benchmarks/*--"$r"/ 2>/dev/null | head -1); [ -z "$R" ] || A+=("$r=$R"); done
+  [ ${#A[@]} -gt 0 ] || { echo "no results yet for the runs in $OUT"; exit 1; }
+  PYTHONIOENCODING=utf-8 python3 - "${A[@]}" <<'EOF' | tee "$OUT/stats.yml"
+import json, glob, sys, statistics, pathlib
+T = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131,
+     2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042]
+runs = []
+for arg in sys.argv[1:]:
+    label, d = arg.split("=", 1)
+    res = {}
+    for f in glob.glob(d + "/*/exercises/practice/*/.aider.results.json"):
+        try: o = json.load(open(f)).get("tests_outcomes") or []
+        except Exception: continue
+        p = pathlib.PurePath(f).parts
+        res[p[-5] + "/" + p[-2]] = o
+    runs.append((label, res))
+N, full = len(runs), max(len(r) for _, r in runs)
+def rate(res, i, lang=None):
+    xs = [o for ex, o in res.items() if lang is None or ex.split("/")[0] == lang]
+    return 100 * sum(any(o[:i]) for o in xs) / len(xs) if xs else float("nan")
+def summary(v):
+    m = statistics.mean(v)
+    if len(v) < 2: return f"{m:5.1f}"
+    sd = statistics.stdev(v); se = sd / len(v) ** 0.5; t = T[len(v) - 2] if len(v) - 2 < len(T) else 1.96
+    return f"{m:5.1f} ± {se:.1f} SE   95% CI ±{t * se:.1f}   SD {sd:.2f}   range {min(v):.1f}-{max(v):.1f}"
+print(f"{'run':<34} {'cases':>5} {'PR1':>6} {'PR2':>6}")
+for label, res in runs:
+    print(f"{label:<34} {len(res):5} {rate(res, 1):6.1f} {rate(res, 2):6.1f}" + ("  incomplete" if len(res) < full else ""))
+print()
+for i in (1, 2):
+    print(f"pass_rate_{i}: {summary([rate(r, i) for _, r in runs])}   ({N} runs)")
+print("\npass_rate_2 by language:")
+for lang in sorted({ex.split("/")[0] for _, r in runs for ex in r}):
+    print(f"  {lang:<12} {summary([rate(r, 2, lang) for _, r in runs])}")
+common = set.intersection(*(set(r) for _, r in runs))
+k = {ex: sum(any(r[ex]) for _, r in runs) for ex in common}
+flaky = sorted((ex for ex in k if 0 < k[ex] < N), key=lambda ex: (k[ex], ex))
+print(f"\nexercises in all {N} runs: {len(common)}   always pass: {sum(v == N for v in k.values())}   "
+      f"always fail: {sum(v == 0 for v in k.values())}   flaky: {len(flaky)}")
+line = " "
+for item in (f"{ex} {k[ex]}/{N}" for ex in flaky):
+    if len(line) + len(item) > 110: print(line); line = " "
+    line += " " + item + " "
+if flaky: print(line.rstrip())
+if any(len(r) < full for _, r in runs):
+    print(f"\nwarning: some runs have fewer than {full} exercises; rerun the same --runs command to finish them")
+EOF
+}
+
 show() {
+  mapfile -t SUBS < <(ls -d "$OUT/$NAME"-r[0-9]*/ 2>/dev/null | sort -V)
+  if [ ${#SUBS[@]} -gt 0 ]; then series; return; fi
   RUN=$(ls -td tmp.benchmarks/*--"$NAME"/ 2>/dev/null | head -1)
   [ -n "$RUN" ] || { echo "no results for run $NAME in ~/aider/tmp.benchmarks"; exit 1; }
   ln -sfn "$PWD/${RUN%/}" "$OUT/results"

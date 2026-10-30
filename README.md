@@ -64,6 +64,7 @@ Show the stats of a finished or running run:
 | `--threads N` | `4` | Exercises run in parallel |
 | `--request-timeout SEC` | `3600` | How long aider waits for one reply before retrying (aider's own default is 600) |
 | `--stats DIR` | `MODEL-FORMAT-MAXTOK` | Output folder; its name is the run name |
+| `--runs N` | `1` | Run the whole benchmark N times and report the scores as mean ± error (see below) |
 | `--redo exhausted\|failed\|crashed\|errors\|LANG/EX,...` | | Rerun only matching exercises of the latest run with this name (see below) |
 | `--system-prefix TEXT\|@FILE` | | Text at the start of the system prompt (see below) |
 | `--user-prefix TEXT\|@FILE` | | Text at the start of the last user message of every request (see below) |
@@ -132,6 +133,34 @@ a green `ok ... request succeeded after N failed attempt(s)` line follows. The s
 | `results.jsonl` | one line per finished exercise |
 | `stats.yml` | aider stats, per-language table and request summary |
 | `results` | symlink to the raw run folder in `~/aider/tmp.benchmarks` |
+
+## Repeated runs and error bars
+
+Thinking models, sampling and batching on the server make results vary from run to run, even at temperature 0.
+`--runs N` runs the whole benchmark N times with identical settings and reports each score as a mean with error bars:
+
+```bash
+./aider-bench.sh --run ... --stats runs/mymodel-whole --runs 5
+```
+
+Each run is an ordinary run in `DIR/NAME-r1` ... `DIR/NAME-rN`, with its own log, `requests.jsonl`, `results.jsonl`
+and `stats.yml`. When all runs are done, and on `--show --stats DIR`, the series report shows, for example:
+
+```
+pass_rate_1:  50.6 ± 0.5 SE   95% CI ±1.4   SD 1.10   range 49.3-52.0   (5 runs)
+pass_rate_2:  90.8 ± 0.4 SE   95% CI ±1.1   SD 0.85   range 89.8-92.0   (5 runs)
+```
+
+plus each run's scores, `pass_rate_2` per language, and the flaky exercises (passed in some runs but not all).
+SE is the standard error of the mean (SD / √N); the 95% CI uses the t-distribution, so it is wide for 2-3 runs.
+
+- The ± is run-to-run noise only. Every full run uses the same 225 exercises (only their order is shuffled).
+- Rerunning the same command continues the series: unfinished runs continue, missing runs start. `-- --new` and
+  `-- --cont` are ignored with `--runs`; use a new `--stats` name for a new series.
+- Do not combine with `-- --num-tests`: each run would pick a different random subset of exercises.
+- `--redo` works on a single run of the series (`--stats DIR/NAME-r2 --redo crashed`); then `--show --stats DIR`
+  updates the report. Redoing only some exercises gives them an extra chance, so mention it.
+- Without `--runs` (or with `--runs 1`) everything works exactly as a normal single run.
 
 ## Rerunning part of a run
 
