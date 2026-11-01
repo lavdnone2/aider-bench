@@ -157,6 +157,8 @@ SE is the standard error of the mean (SD / √N); the 95% CI uses the t-distribu
 - The ± is run-to-run noise only. Every full run uses the same 225 exercises (only their order is shuffled).
 - Rerunning the same command continues the series: unfinished runs continue, missing runs start. `-- --new` and
   `-- --cont` are ignored with `--runs`; use a new `--stats` name for a new series.
+- If a run fails (for example, the container is killed), the series goes on with the next run, and the same command
+  finishes the failed one later. Ctrl-C stops the whole series.
 - Do not combine with `-- --num-tests`: each run would pick a different random subset of exercises.
 - `--redo` with `--runs N` reruns the matching exercises in every started run, then prints the series report. For
   one run only, use `--stats DIR/NAME-rK --redo ...`, then `--show --stats DIR`. Redoing only some exercises gives

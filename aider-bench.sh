@@ -50,7 +50,8 @@ if [ "${RUNS:-1}" -gt 1 ] && [ "$MODE" = run ]; then
     if ls -d "$HOME/aider/tmp.benchmarks/"*--"$NAME-r$i"/ >/dev/null 2>&1; then X+=(--cont)
     elif [ -n "$REDO" ]; then echo "=== run $i of $RUNS: not started, nothing to redo (the same command without --redo starts it)"; continue; fi
     echo "=== run $i of $RUNS: $OUT/$NAME-r$i"
-    bash "$SELF" --stats "$OUT/$NAME-r$i" "${OPTS[@]}" -- "${X[@]}"
+    bash "$SELF" --stats "$OUT/$NAME-r$i" "${OPTS[@]}" -- "${X[@]}" ||
+      { rc=$?; [ $rc != 130 ] || exit 130; echo "=== run $i of $RUNS failed (exit $rc); the same command finishes it later"; }
   done
   MODE=show
 fi
@@ -324,6 +325,7 @@ EOF
     aider-benchmark bash -c "$SETUP && echo '--- in docker: $CMD' && { $CMD; rc=\$?; chown $(id -u):$(id -g) /out/requests.jsonl /out/results.jsonl 2>/dev/null; exit \$rc; }" \
     >"$LOG" 2> >(grep --line-buffered -v 'Input is not a terminal' | tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> "$LOG") >&2) \
     || { echo "benchmark failed, last lines of $LOG:"; tail -20 "$LOG"; exit 1; }
-  grep -E "^(Prior runs|ERROR: |No exercise|Warning: benchmarking)" "$LOG" && exit 1
+  E=$(grep -E "^(Prior runs of .* exist, use --new|Only provide 1 dirname|Warning: benchmarking runs unvetted|No exercise directories found|ERROR: will not delete dir|Error loading model settings: )" "$LOG") &&
+    { echo "benchmark.py stopped early: $E"; exit 1; }
 fi
 show
